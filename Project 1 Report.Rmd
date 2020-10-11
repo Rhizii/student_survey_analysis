@@ -1,0 +1,575 @@
+---
+title: "DATA2x02 Survey Analysis"
+author: "SID: 490411445"
+date: "09/2020"
+output:
+    bookdown::html_document2: # note that this requires bookdown
+    # html_document:
+      toc: yes
+      toc_depth: 3
+      toc_float: yes
+      code_folding: hide
+      number_sections: true
+      theme: readable
+      highlight: kate
+      # css: style.css
+---
+
+# Introduction
+The primary aim of this report is to uncover any interesting insights from the 2020 Semester 2 DATA2X02 class survey. Additionally, improvements for future surveys are also discussed. The main questions discussed are:
+
+1. Does the number of COVID tests follow a Poisson distribution?
+2. Are students with glasses or contacts more studious?
+3. Is a student’s choice of their favourite social media platform dependent on their visual acuity?
+```{r setup, include=TRUE, message = FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(dplyr)
+library(janitor)
+library(skimr)
+library(visdat)
+library(gt)
+library(kableExtra)
+library(tibble)
+library(gtsummary)
+library(ggthemes)
+library(reshape2)
+library(ggpubr)
+library(gridExtra)
+library(plotly)
+library(pwr)
+``` 
+
+
+# Data Wrangling
+<!-- Postcode -> non-response (security/privacy) -->
+<!-- university-work/exercising/floss_freq -> soocial desirability - might round up hours (or over estimate to conform to norms) -->
+<!-- shoe_size? ->  -->
+A majority of the following code was taken from Dr Garth Tarr's lecture examples, as it converts the raw data's variables names into names that are more manageable for analysis. Filtering for NA values and unnatural responses is performed in later sections when the variables are used for hypothesis testing.
+
+```{r, message = FALSE, warning=FALSE}
+raw = read_csv("DATA2X02 class survey 2020 (Responses) - Form responses 1.csv")
+x = raw %>% clean_names()
+
+colnames(x) = stringr::str_replace(string = colnames(x),
+                                   pattern = "what_is_your_",
+                                   replacement = "")
+colnames(x) = stringr::str_replace(string = colnames(x),
+                                   pattern = "on_average_how_many_hours_per_week_did_you_",
+                                   replacement = "")
+
+colnames(x)[2] = "covid_test"
+colnames(x)[4] = "postcode"
+colnames(x)[5] = "dentist"
+colnames(x)[6] = "university_work"
+colnames(x)[7] = "social_media"
+colnames(x)[8] = "dog_or_cat"
+colnames(x)[9] = "live_with_parents"
+colnames(x)[10] = "exercising"
+colnames(x)[12] = "asthma"
+colnames(x)[13] = "paid_work"
+colnames(x)[14] = "fav_season"
+colnames(x)[16] = "height"
+colnames(x)[17] = "floss_frequency"
+colnames(x)[18] = "glasses"
+
+colnames(x)[20] = "steak_preference"
+colnames(x)[21] = "stress_level"
+
+x = x %>% mutate(
+  postcode = as.character(postcode),
+  timestamp = lubridate::dmy_hms(timestamp)
+)
+
+#skim(x)
+#vis_miss(x)
+
+
+```
+
+
+# Initial Data Analysis
+## Data Source
+The data was collected from a survey which was made available to all DATA2x02 students for a couple of days. Out of ~572 people there were 174 responses. The survey was created by Dr Garth Tarr and hosted on Google Forms.
+
+## Potential Biases
+
+
+
+### Postcode
+```{r , message = FALSE, warning=FALSE}
+sum(is.na(x$postcode))/length(x$postcode)*100
+```
+The general DATA2x02 cohort may not be comfortable with sharing their postcode for privacy and security reasons. Hence, a non-response bias is highly probable. Observing the relatively high percentage of missing values for the postcode question (~10%) , it can be deduced that such a bias occurs.
+
+
+### Hours spent on university work and exercising, and flossing frequency
+These variables are subject to social desirability bias as spending more time on university work, exercising and flossing is considered to be more socially acceptable and productive. Hence, surveyees may exaggerate their response and submit longer hours.
+
+
+<!-- REMOVE UNATURAL HRS??? -->
+<!-- # Research Questions -->
+## Is this a random sample of DATA2x02 students?
+As no sampling technique removes all possible biases, this survey data cannot be considered a purely random sample of DATA2x02 students. 
+
+The survey was only avaliable to students for a couple of days (a relatively short period of time). Hence, a sampling bias emerges, as students who are 'quick to act' are preferred over students who 'procrastinated' the survey.
+
+On the other hand, the survey was posted on ED, a forum which is easily accessible to all students. Hence, this would effectively remove any exclusion bias.
+
+Overall, whilst this sample cannot truly be considered a 'random' sample, we can assert that the sampling techniques reduce the chances of biases.
+
+
+## Are there any questions that needed improvement to generate useful data?
+
+
+<!-- postcodes unique across countries????? give example? - whilst it probsdoesnt concern this dataset it is something to consider -->
+
+
+### Shoe size - What is your shoe size
+```{r}
+head(x$shoe_size)
+```
+The \emph{shoe size} variable cannot be used to determine valid results as we are uncertain about the measurement unit used. As seen above in most instances we cannot determine whether US,UK or Euro sizing was used. So, to generate useful data the question should ask for a specific measurement unit.
+
+
+
+### Height - How tall are you?
+```{r}
+head(x$height, 5)
+```
+Question should mention the units (either cm or m), as currently there exist values typed in cm and m (as seen above). Whilst this data can be converted to one unit appropriately, it is not ideal.
+
+
+
+### Gender
+```{r}
+head(x$gender, 20)
+```
+Instead of taking text input, a drop menu containing several options should be used. This avoids the need to categorise each string into a gender and eliminates the risk of incorrectly parsing the data (due to unusual inputs).
+
+
+
+
+### Social Media - What is your favourite social media platform?
+```{r}
+head(x$social_media)
+```
+Similar reasoning for the gender question. People may misspell or provide more than one social media platform. (as seen above)
+
+
+
+<!-- shoe size -> specify the standard (US/UK, etc) -->
+<!-- fav social -> add a drop down menu of social media (instead of them typing)  easier to parse data -->
+<!-- height -> specify unit of measuremnt (cm/m) -->
+<!-- streslevel?????? - hard to quantify -->
+
+
+# Does the number of COVID tests follow a Poisson distribution?
+## Hypothesis
+
+
+```{r}
+y = x %>%
+  filter(!is.na(covid_test)) %>%
+  group_by(covid_test) %>%
+  count()
+
+n = sum(y$n)
+
+#estimating the lambda parameter from the sample
+l = sum(y$n * y$covid_test)/n
+
+p = dpois(y$covid_test, lambda = l)
+
+sample_counts = y$n
+
+tests = y$covid_test
+poisson_counts = n*p
+df1 = data.frame(sample_counts, poisson_counts, tests )
+df2 = melt(df1, id.vars="tests")
+
+g1 = df2 %>%
+  ggplot() + 
+  aes(x = tests, y=value, fill=variable) + 
+  geom_bar(stat='identity', position='dodge') +
+  labs(x = "Number of COVID tests", y = "Counts", fill = "Sample", 
+       caption = "Comparison between theoritical Poisson and sample distribution") + 
+  scale_fill_manual(labels = c("Sample Counts", "Poisson Counts"), values = c("indianred2", "turquoise3"))+
+  theme_economist()
+g1
+
+```
+
+
+When compared to theoretical counts derived from the Poisson, the number of COVID tests does seem to follow the *shape* of a Poisson distribution. However, for some categories there are significant differences between the observed and the theoretical, which may suggest that it isn't Poisson distributed.
+
+Hence to test this we formulate the following hypotheses and run a Chi-squared Goodness of Fit Test:
+
+$H_0$: The number of COVID tests follow a Poisson distribution
+
+$H_1$: The number of COVID tests do not follow a Poisson distribution
+
+Set $\alpha = 0.05$
+
+## Assumptions
+1. All responses are independent - This is safe to say since each student only did one survey
+2. The expected frequencies of each category are greater than 5 
+
+```{r}
+len = length(y$covid_test)
+
+p[len] = 1 - sum(p[1:(len-1)])
+
+
+res = chisq.test(y$n, p=p)
+
+ey = res$expected
+res$expected
+
+```
+
+We observe above that there are a number of cells where the expected counts are less than 5, hence violating our assumption. Hence, we group the first last 6 cells to fix this to the get the expected counts, as seen below
+
+```{r}
+grp = 2
+y = y$n
+
+yr = c(y[1:grp], sum(y[(grp+1):len]))
+
+pr = c(p[1:grp], sum(p[(grp+1):len]))
+
+lenr = length(yr)
+
+eyr = c(ey[1:grp], sum(ey[(grp+1):len]))
+
+eyr
+```
+
+
+## Test statistic
+
+$T = \sum_{i = 0}^{2} \frac{(Y_i - np_i)^2}{np_i}$, under $H_0, T$ ~ $\chi_1^2$
+
+```{r}
+length(yr)
+```
+Hence the degrees of freedom are $3-1-1 = 1$, as after grouping we have 3 categories and the data was also used to estimate the $\lambda$ parameter.
+
+
+## Observed test statistic
+```{r}
+res = chisq.test(yr, p = pr)
+# res$expected
+# res$parameter
+
+p_val = pchisq(res$statistic, df = 1, lower.tail = FALSE)
+p_val
+
+
+# chisq.test(yr, p = pr, simulate.p.value = TRUE)
+
+```
+
+
+## Conclusion
+Since the observed p-value of $9.33\times10^{-6}$ is less than our alpha, we reject the null hypothesis; hence concluding that the number of COVID tests does not follow a Poisson distribution.
+
+
+# Are students with glasses or contacts more studious?
+## Introduction
+This hypothesis aims to determine if students with glasses or contacts spend more time on university work than their counterparts. 
+
+***Rationale behind this test***
+
+On the assumption that smarter students spend more time studying, this test aims to determine if the sample aligns with the results of *Williams, Katie M et al* in their report *“Phenotypic and genotypic correlation between myopia and intelligence.”*. They conclude that whilst there may seem a significant relationship myopia and IQ (in the highest IQ quartile), 78% of these were explained by genetic effects.
+
+
+## Hypothesis:
+Let $\mu_x$ be the average amount of hours spent on university work spent by students with glasses or contacts. ($X_i's$) 
+
+Let $\mu_y$ be the average amount of hours spent on university work spent by students without glasses or contacts. ($Y_i's$) 
+
+Exploratory analysis suggests that there may not be a significant difference in the means of all the $X_i's$ and $Y_i's$, as seen in the boxplot below. On average both groups of students spend around ~27 hours per week on university work (Table 5.1).
+
+
+```{r}
+glasses = x %>%
+  filter(glasses == "Yes") %>%
+  dplyr::select(university_work) %>%
+  filter(!is.na(university_work)) %>%
+  filter(university_work < 80)
+
+no_glasses = x %>%
+  filter(glasses == "No") %>%
+  dplyr::select(university_work) %>%
+  filter(!is.na(university_work)) %>%
+  filter(university_work < 80)
+
+b1 = x %>%
+  filter(university_work < 80) %>%
+  filter(!is.na(university_work)) %>%
+  filter(!is.na(glasses)) %>%
+  ggplot() +
+  aes(x = glasses, y = university_work) +
+  geom_boxplot() +
+  geom_jitter(width=0.15, size = 1.5, colour = "blue") + 
+  labs(x = "Wears glasses", y = "Hours spent on university work") + 
+  theme_economist()
+
+ggplotly(b1)
+
+summary = matrix(c(mean(glasses$university_work), sd(glasses$university_work),
+                        mean(no_glasses$university_work), sd(no_glasses$university_work)), ncol = 2, byrow=TRUE)
+
+colnames(summary) = c("Mean (hrs) ", "SD (hrs)")
+rownames(summary) = c("No", "Yes")
+
+
+kableExtra::kable(summary, caption = "Mean and SD summaries") %>%
+    kable_styling(bootstrap_options = c("hover", "striped", "condensed")) %>%
+    kable_classic_2() 
+
+```
+
+
+<br/>
+
+
+We begin by establishing the hypotheses and running a Two-Sample t-test to test for the difference in the means.
+
+
+$H_0$: $\mu_x = \mu_y$ 
+
+$H_1$: $\mu_x > \mu_y$
+
+Set $\alpha = 0.05$
+
+## Assumptions
+1. All $X_i's$ are are iid $N(\mu_x, \sigma^2)$
+Observing the qqplot below, we can assume that all $X_i's$ are normal.
+
+2. All $Y_i's$ are are iid $N(\mu_y, \sigma^2)$
+Observing the qqplot below, we can assume that all $Y_i's$ are normal.
+```{r, fig.width=10}
+q1 = ggqqplot(glasses$university_work) + 
+  labs(x = "Theoritical quantiles from a normal distribution", 
+       y = "Quantiles from sample", 
+       caption = "For X_i sample") + 
+   theme_economist()
+
+q2 = ggqqplot(no_glasses$university_work) + 
+    labs(x = "Theoritical quantiles from a normal distribution", 
+       y = "Quantiles from sample", 
+       caption = "For Y_i sample") + 
+    theme_economist()
+
+grid.arrange(q1, q2, ncol = 2)
+
+```
+
+
+3. Since both samples have a standard deviation of ~14 (Table 5.1), we can assume that  all $X_i's$ and $Y_i's$ have equal variances.
+
+
+4. Given that each student only did one survey, it is safe to assume that all $X_i's$ are independent of all $Y_i's$
+  
+## Test statistic
+$T  = \frac{\bar{X} - \bar{Y}}{s_p\sqrt{\frac{1}{n_1} + \frac{1}{n_2}}}$, where $S_p^2 = \frac{(n_x - 1)S_x^2 + (n_y - 1)S_y^2}{n_x + n_y - 2}$, with $T$ ~ $t_{162}$
+
+Degrees of freedom calculation shown below.
+
+```{r}
+length(glasses$university_work) + length(no_glasses$university_work) - 2
+```
+
+
+
+## Test statistic and p-value
+```{r}
+t_res = t.test(glasses$university_work, no_glasses$university_work, 
+               alternative="greater", conf.level = 0.95, var.equal = TRUE)
+t_res
+# t_res$statistic
+# t_res$p.value
+# t_res$conf.int
+
+# p_res = pwr.t2n.test(n1 = length(glasses$university_work), n2 = length(no_glasses$university_work), 
+#              d = NULL, sig.level = 0.05, power = 0.8, alternative="greater" )
+# 
+# p_res$d*16
+```
+
+## Conclusion
+Since the observed p-value of $0.4401$ is larger than our alpha (0.05), we accept the null hypothesis. Additionally, we can confirm this by observing that with mean difference of 0 is within the 95% confidence interval.
+
+Hence, we conclude than there is not a significant difference between the hours spent on university work by students with glasses or contacts and without them. This aligns with the results from the study conducted by *Williams, Katie M et al*. 
+
+
+# Is a student's choice of their favourite social media platform dependent on their visual acuity?
+
+## Introduction
+With the rise numerous social media platforms, individuals have many ways to socialise with existing friends and connect with new people. Hence, this leads us to question which factors influence one's social media choices and underlying reason behind why they impact one's choices.
+
+So we begin by analysing whether a student's visual acuity impacts their choice of favourite social media platform.
+
+Due to the inconsistent formatting and spelling for platform names, the data first had to be parsed and grouped into appropriate categories (code below)
+
+As seen below most students tend to prefer Facebook and Instagram over other platforms. The significantly large count in the *Other* category can be explained by high occurrence surveyees misspelling words and choosing 'outdated' platforms, such as Google+.
+
+
+```{r}
+
+#grouping text input into social media categories
+
+x2 = x %>%
+  filter(!is.na(social_media)) %>%
+  mutate(
+    social_media = case_when(
+      tolower(substr(social_media, start = 1, stop = 3)) == "fac" ~ "Facebook",
+      tolower(substr(social_media, start = 1, stop = 3)) == "ins" ~ "Instagram",
+      tolower(substr(social_media, start = 1, stop = 3)) == "wec" ~ "WeChat",
+      tolower(substr(social_media, start = 1, stop = 3)) == "twi" ~ "Twitter",
+      tolower(substr(social_media, start = 1, stop = 3)) == "wec" ~ "WeChat",
+      tolower(substr(social_media, start = 1, stop = 3)) == "mes" ~ "Messenger",
+      tolower(substr(social_media, start = 1, stop = 3)) == "wec" ~ "WeChat",
+      tolower(substr(social_media, start = 1, stop = 3)) == "red" ~ "Reddit",
+      tolower(substr(social_media, start = 1, stop = 3)) == "tik" ~ "Tiktok",
+      tolower(substr(social_media, start = 1, stop = 3)) == "sna" ~ "Snapchat",
+      tolower(substr(social_media, start = 1, stop = 3)) == "bil" ~ "Bilibili",
+      TRUE ~"Other"
+    )
+  )
+
+
+b1 = x2 %>%
+      filter(!is.na(glasses)) %>%
+      ggplot() + 
+      aes(x = glasses, fill = glasses) + 
+      geom_bar() +
+       labs(y = "Counts", x = "Wear glasses or contacts", 
+            caption = paste("Barplot of people who wears contacts or glasses", sep = " ", collapse = NULL)) +
+      theme_economist()
+
+b2 = x2 %>% 
+      # filter(!is.na(social_media)) %>%
+      ggplot() + 
+      aes(x = reorder(social_media, social_media, function(x)-length(x)), fill = social_media) + 
+      geom_bar() +
+       labs(y = "Counts", x = "Favourite social media platform", 
+            caption = paste("Barplot of student's favourite social media platform", sep = " ", collapse = NULL)) +
+      guides(fill=FALSE) + 
+      theme_economist()
+b1
+b2
+# grid.arrange(b1, b2, ncol = 2)
+```
+
+
+
+Now we begin by formulating our hypotheses and running a Chi-squared Monte-Carlo Simulation to test for independence.
+
+## Hypothesis
+$H_0$: Favourite social media platform and whether a person wears glasses or contacts are independent.
+
+$H_1$: Favourite social media platform and whether a person wears glasses or contacts are dependent.
+
+Set $\alpha = 0.05$.
+
+## Assumptions
+1. All responses are independent - This is safe to say since each student only did one survey
+2. The expected frequencies of each category are greater than 5
+
+## Test statistic and p-value
+
+```{r}
+tb = x2 %>%
+        dplyr::select(glasses, social_media) %>%
+        na.omit() %>%
+        table() 
+
+gt_tb = gt(as.data.frame.matrix(
+      tb), 
+      rownames_to_stub = TRUE) %>%
+      tab_header(title ="Contingency table of favourite social media platform 
+                          and whether a person wears glasses or contacts",
+                  subtitle = "Favourite social media platform") %>%
+      tab_stubhead(label = "Wears glasses or contacts")
+    
+
+set.seed(100)
+res = chisq.test(tb, simulate.p.value = TRUE, B = 10000)
+res
+```
+Since the p-value of $0.005999$ is much smaller than our alpha (0.05), we reject the null hypothesis and accept the alternative hypothesis. Thus, there is evidence to suggest that a DATA2x02 student's favourite social media platform and whether they wear glasses or contacts are dependent.
+
+
+## Discussion
+Some potential uses of this conclusion would be for the advertisement departments of optical retail companies, such as Specsavers and OPSM. It would be beneficial for them to advertise on a social media platform heavily used by people with glasses or contacts (their target demographic). Hence, advertising on these specifc platforms, would increase awareness of their products, potentially increasing business sales.
+
+
+
+# Conclusion
+Overall, many interesting conclusions were drawn through the analysis of the survey data; some of them confirming existing ideas whilst others provided new insights. 
+
+# References 
+1. Williams, K. M., Hysi, P. G., Yonova-Doing, E., Mahroo, O. A., Snieder, H., & Hammond, C. J. (2017). Phenotypic and genotypic correlation between myopia and intelligence. Scientific reports, 7, 45977. https://doi.org/10.1038/srep45977 
+2. Tarr, G (2020). DATA2002 Data Analytics: Learning from Data. University fo Sydney, Sydney Australia
+3. R packages
+   + tidyverse
+   + dplyr
+   + janitor
+   + skimr
+   + visdat
+   + gt
+   + kableExtra
+   + tibble
+   + gtsummary
+   + ggthemes
+   + reshape2
+   + ggpubr
+   + gridExtra
+   + pwr
+ 
+ 
+<!--  library(tidyverse) -->
+<!-- library(dplyr) -->
+<!-- library(janitor) -->
+<!-- library(skimr) -->
+<!-- library(visdat) -->
+<!-- # library(fitdistrplus) -->
+<!-- library(gt) -->
+<!-- library(kableExtra) -->
+<!-- library(tibble) -->
+<!-- library(gtsummary) -->
+<!-- library(ggthemes) -->
+<!-- library(reshape2) -->
+<!-- library(ggpubr) -->
+<!-- library(gridExtra) -->
+
+
+
+<!-- # random -> test for uniformly distributed across class?? bar.histograms -->
+<!-- # people lying? over exaggertaing  - subjective etc (find the exact names) - most biases (stress levels, ) -->
+<!-- # think of questoin -->
+<!-- # do a hypothesis  -->
+
+
+
+
+<!-- ----- -->
+
+
+<!-- # parents and employment outcome -->
+<!-- # postcode -> chinese international students -> more times tested? check -->
+
+<!-- # related variables -->
+<!-- ## shoesize and height -->
+<!-- ## postcode and time tested for covid -> plot on map?? sydney look at code for map -->
+<!-- ## if you work and live with parents -> see if there is a significant differnce -->
+<!-- ## find total time spent on exercising, uni, and work (consider the ratio between all of them) -->
+<!-- ## glasses/contacts and how many hours of uni work? -->
+<!-- ## timestap -> more unnatural responses? - split into time periods, mornings, ... -->
+
+
+
+<!-- # issues with variables  -->
